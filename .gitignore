@@ -1,0 +1,12 @@
+# Claude Code 本地配置
+.claude/
+
+# 运行时生成的缓存文件
+ashare_names.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
