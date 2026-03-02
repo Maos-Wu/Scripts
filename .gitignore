@@ -3,6 +3,7 @@
 
 # 运行时生成的缓存文件
 ashare_names.json
+trans_cache.json
 
 # Python
 __pycache__/

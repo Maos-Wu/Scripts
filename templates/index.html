@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>中国股市实时监控</title>
+<style>
+  :root {
+    --bg:     #1a1a1a;
+    --bg2:    #222;
+    --bg3:    #2a2a2a;
+    --border: #383838;
+    --text:   #ddd;
+    --dim:    #777;
+    --up:     #ff4d4d;
+    --down:   #00cc66;
+    --accent: #4db8ff;
+    --gold:   #ffd700;
+    --live:   #ff8c42;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 13px;
+    padding: 5px 8px;
+  }
+
+  h1 {
+    text-align: center;
+    color: var(--gold);
+    font-size: 15px;
+    border: 1px solid #3a5a8a;
+    padding: 4px 0;
+    margin-bottom: 6px;
+    background: #0d1b2a;
+    letter-spacing: 2px;
+  }
+
+  /* ── 左右分栏 ── */
+  #app  { display: flex; gap: 8px; align-items: flex-start; }
+  #left-col { flex: none; }
+  #main     { width: max-content; }
+
+  /* ── 右栏：上下两半 ── */
+  #news-panel {
+    flex: 1;
+    min-width: 280px;
+    position: sticky;
+    top: 5px;
+    height: calc(100vh - 42px);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .news-half {
+    flex: 1;
+    min-height: 0;          /* 允许 flex 子元素收缩 */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .news-half .card-title { flex-shrink: 0; }
+
+  /* Live 标题栏颜色 */
+  .live-title { color: var(--live) !important; }
+
+  /* 脉冲红点 */
+  .live-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    background: #ff4444;
+    border-radius: 50%;
+    margin-right: 5px;
+    vertical-align: middle;
+    animation: livepulse 1.5s ease-in-out infinite;
+  }
+  @keyframes livepulse {
+    0%, 100% { opacity: 1;   box-shadow: 0 0 0 0   rgba(255,68,68,.5); }
+    50%       { opacity: 0.5; box-shadow: 0 0 0 4px rgba(255,68,68,0);  }
+  }
+
+  /* 可滚动内容区（新闻 / Live 共用） */
+  .news-scroll {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .news-scroll::-webkit-scrollbar { width: 4px; }
+  .news-scroll::-webkit-scrollbar-track { background: var(--bg2); }
+  .news-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* 新闻条目 */
+  .news-item {
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .news-item:last-child { border-bottom: none; }
+  .news-item:hover { background: #2a2a2a; }
+  .news-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2px;
+  }
+  .news-source {
+    font-size: 10px; font-weight: bold;
+    padding: 1px 5px; border-radius: 2px;
+    background: #1c2d40; color: var(--accent);
+  }
+  .news-time  { font-size: 10px; color: var(--dim); }
+  .news-title { font-size: 12px; line-height: 1.45; }
+  .news-title a { color: var(--text); text-decoration: none; }
+  .news-title a:hover { color: var(--accent); text-decoration: underline; }
+
+  @keyframes newsflash {
+    0%   { background: #1c3a50; }
+    100% { background: transparent; }
+  }
+  .news-new { animation: newsflash 2s ease-out; }
+
+  /* ── Live News 固定行（每源一行，无滚动）── */
+  #live-list {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .live-row {
+    flex: 0 0 20%;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 6px;
+  }
+  .live-row:last-child { border-bottom: none; }
+  .live-row:hover { background: #2a2a2a; }
+  .live-row-inner {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
+    min-width: 0;
+  }
+  .live-row-inner.live-flip {
+    animation: liveFlip 0.4s ease-out;
+  }
+  @keyframes liveFlip {
+    0%   { transform: translateY(-110%); opacity: 0; }
+    100% { transform: translateY(0);     opacity: 1; }
+  }
+  .live-badge {
+    font-size: 9px; font-weight: bold;
+    padding: 1px 4px; border-radius: 2px;
+    background: #2d1c0d; color: var(--live);
+    flex-shrink: 0; white-space: nowrap;
+  }
+  .live-row-time { font-size: 9px; color: var(--dim); flex-shrink: 0; }
+  .live-row-title {
+    font-size: 11px; flex: 1;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
+  .live-row-title a { color: var(--text); text-decoration: none; }
+  .live-row-title a:hover { color: var(--live); text-decoration: underline; }
+
+  /* ── 分区线 ── */
+  .section-rule {
+    border: none; border-top: 1px solid var(--border);
+    margin: 6px 0 5px; text-align: center; font-size: 12px; line-height: 0;
+  }
+  .section-rule span { background: var(--bg); padding: 0 8px; color: var(--accent); }
+
+  /* ── 网格 ── */
+  .grid-2 { display: grid; grid-template-columns: auto auto; gap: 5px; }
+  .grid-3 { display: grid; grid-template-columns: auto auto auto; gap: 5px; }
+  .top-row { display: flex; gap: 5px; align-items: flex-start; margin-bottom: 6px; }
+  .top-row .grid-2 { flex: none; }
+  #futures-panel { flex-shrink: 0; }
+
+  /* ── 卡片 ── */
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
+  .card-title {
+    background: #1c2d40; color: var(--accent);
+    padding: 3px 8px; font-weight: bold;
+    border-bottom: 1px solid var(--border); font-size: 12px;
+  }
+
+  /* ── 表格 ── */
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    background: var(--bg3); color: var(--dim);
+    padding: 2px 2px; text-align: right; font-weight: normal;
+    border-bottom: 1px solid var(--border); white-space: nowrap; font-size: 11px;
+  }
+  th.l { text-align: left; }
+  td {
+    padding: 2px 2px; text-align: right;
+    white-space: nowrap; border-bottom: 1px solid #252525; font-size: 12px;
+  }
+  td.l   { text-align: left; }
+  td.dim { color: var(--dim); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #2e2e2e; }
+
+  /* 名称→当前价 列间距 */
+  #watchlist-grid   td:nth-child(2), #watchlist-grid   th:nth-child(2) { padding-right: 2px; }
+  #watchlist-grid   td:nth-child(3), #watchlist-grid   th:nth-child(3) { padding-left:  2px; }
+  #leaderboard-grid td:nth-child(3), #leaderboard-grid th:nth-child(3) { padding-right: 2px; }
+  #leaderboard-grid td:nth-child(4), #leaderboard-grid th:nth-child(4) { padding-left:  2px; }
+  #futures-panel    td:nth-child(1), #futures-panel    th:nth-child(1) { padding-right: 2px; }
+  #futures-panel    td:nth-child(2), #futures-panel    th:nth-child(2) { padding-left:  2px; }
+
+  /* ── 榜单滚动 ── */
+  .lb-body { max-height: 560px; overflow-y: auto; }
+  .lb-body::-webkit-scrollbar { width: 4px; }
+  .lb-body::-webkit-scrollbar-track { background: var(--bg2); }
+  .lb-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .lb-body thead th { position: sticky; top: 0; z-index: 1; }
+
+  /* ── 颜色 ── */
+  .up { color: var(--up); }
+  .dn { color: var(--down); }
+  .na { color: var(--dim); }
+
+  @keyframes flash { 0% { background: #4a3d18; } 100% { background: transparent; } }
+  .hl td { animation: flash 0.6s ease-out; }
+
+  /* ── 状态栏 ── */
+  .status-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 6px; padding: 3px 8px;
+    background: var(--bg2); border: 1px solid var(--border);
+    color: var(--dim); font-size: 11px;
+  }
+  .status-bar .val   { color: var(--text); }
+  .status-bar .alert { color: var(--gold); }
+
+  #loading { text-align: center; padding: 60px 0; color: var(--gold); font-size: 16px; }
+  #main    { display: none; }
+</style>
+</head>
+<body>
+<h1>中国股市实时监控</h1>
+
+<div id="app">
+
+  <!-- 左栏：行情 -->
+  <div id="left-col">
+    <div id="loading">正在加载数据…</div>
+    <div id="main">
+      <div class="top-row">
+        <div class="grid-2" id="watchlist-grid"></div>
+        <div id="futures-panel"></div>
+      </div>
+      <p class="section-rule"><span>── A 股榜单 ──</span></p>
+      <div class="grid-3" id="leaderboard-grid"></div>
+      <div class="status-bar">
+        <span>刷新间隔: <span class="val" id="interval-val">--</span>s</span>
+        <span>最后更新: <span class="val" id="updated-val">--</span></span>
+        <span id="alert-val" class="alert"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右栏：新闻（上半）+ Live News（下半） -->
+  <div id="news-panel">
+
+    <div class="news-half card">
+      <div class="card-title">新闻头条</div>
+      <div id="news-list" class="news-scroll"></div>
+    </div>
+
+    <div class="news-half card">
+      <div class="card-title live-title">
+        <span class="live-dot"></span>Live News
+      </div>
+      <div id="live-list"></div>
+    </div>
+
+  </div>
+
+</div><!-- #app -->
+
+<script>
+const CAT_ORDER = ['大盘指数', 'A 股', '港  股', 'ETF'];
+let _interval = 10;
+
+/* ── 格式化 ── */
+function colorCls(pct) {
+  if (pct == null) return 'na';
+  return pct > 0 ? 'up' : pct < 0 ? 'dn' : '';
+}
+function fmtPct(pct) {
+  if (pct == null) return '<span class="na">N/A</span>';
+  const s = pct >= 0 ? '+' : '';
+  return `<span class="${colorCls(pct)}">${s}${pct.toFixed(2)}%</span>`;
+}
+function fmtPrice(p, pct) {
+  if (p == null) return '<span class="na">N/A</span>';
+  return `<span class="${colorCls(pct)}">${p.toFixed(2)}</span>`;
+}
+function fmtChange(c, pct) {
+  if (c == null) return '<span class="na">N/A</span>';
+  const s = c >= 0 ? '+' : '';
+  return `<span class="${colorCls(pct)}">${s}${c.toFixed(2)}</span>`;
+}
+function fmtVol(v) {
+  return (v && v !== 'N/A') ? `<span class="na">${v}</span>` : '<span class="na">N/A</span>';
+}
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ── 行情卡片 ── */
+function watchlistCard(title, rows, hlSet) {
+  let h = `<div class="card"><div class="card-title">${title}</div><table>
+    <thead><tr><th class="l">代码</th><th class="l">名称</th>
+      <th>当前价</th><th>涨跌额</th><th>涨跌幅%</th><th>均量(3M)</th>
+    </tr></thead><tbody>`;
+  for (const r of rows) {
+    h += `<tr class="${hlSet.has(r.ticker)?'hl':''}">
+      <td class="l dim">${r.ticker}</td>
+      <td class="l ${colorCls(r.pct)}">${r.name}</td>
+      <td>${fmtPrice(r.price,r.pct)}</td><td>${fmtChange(r.change,r.pct)}</td>
+      <td>${fmtPct(r.pct)}</td><td>${fmtVol(r.volume)}</td></tr>`;
+  }
+  return h + '</tbody></table></div>';
+}
+function leaderboardCard(title, rows, hlSet) {
+  let h = `<div class="card"><div class="card-title">${title}</div>
+    <div class="lb-body"><table>
+    <thead><tr><th>#</th><th class="l">代码</th><th class="l">名称</th>
+      <th>最新价</th><th>涨跌幅%</th><th>成交量</th>
+    </tr></thead><tbody>`;
+  for (const r of rows) {
+    h += `<tr class="${hlSet.has(r.code)?'hl':''}">
+      <td class="dim">${r.rank}</td><td class="l dim">${r.code}</td>
+      <td class="l ${colorCls(r.pct)}">${r.name}</td>
+      <td>${fmtPrice(r.price,r.pct)}</td><td>${fmtPct(r.pct)}</td>
+      <td>${fmtVol(r.volume)}</td></tr>`;
+  }
+  return h + '</tbody></table></div></div>';
+}
+function futuresCard(rows) {
+  let h = `<div class="card"><div class="card-title">国际期货</div><table>
+    <thead><tr><th class="l">品种</th><th>当前价</th><th>涨跌额</th><th>涨跌幅%</th>
+    </tr></thead><tbody>`;
+  for (const r of rows) {
+    h += `<tr><td class="l ${colorCls(r.pct)}">${r.name}</td>
+      <td>${fmtPrice(r.price,r.pct)}</td><td>${fmtChange(r.change,r.pct)}</td>
+      <td>${fmtPct(r.pct)}</td></tr>`;
+  }
+  return h + '</tbody></table></div>';
+}
+
+/* ── 行情渲染 ── */
+function render(data) {
+  const hlSet = new Set(data.highlighted || []);
+  const seen = new Set();
+  let whtml = '';
+  for (const cat of CAT_ORDER) {
+    if (data.watchlist[cat]) { whtml += watchlistCard(cat, data.watchlist[cat], hlSet); seen.add(cat); }
+  }
+  for (const cat of Object.keys(data.watchlist))
+    if (!seen.has(cat)) whtml += watchlistCard(cat, data.watchlist[cat], hlSet);
+  document.getElementById('watchlist-grid').innerHTML = whtml;
+  if (data.futures?.length)
+    document.getElementById('futures-panel').innerHTML = futuresCard(data.futures);
+  const lb = data.leaderboard;
+  document.getElementById('leaderboard-grid').innerHTML =
+    leaderboardCard('涨幅榜', lb.gain||[], hlSet) +
+    leaderboardCard('跌幅榜', lb.loss||[], hlSet) +
+    leaderboardCard('成交量榜', lb.volume||[], hlSet);
+  document.getElementById('updated-val').textContent  = data.updated || '--';
+  document.getElementById('interval-val').textContent = _interval;
+  const cnt = hlSet.size;
+  document.getElementById('alert-val').textContent = cnt > 0 ? `⚡ ${cnt} 只股票变动` : '';
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('main').style.display = 'block';
+}
+
+/* ── 新闻渲染工厂（新闻 / Live 共用同一套逻辑）── */
+function makeNewsRenderer(listId, extraItemClass = '') {
+  const seen  = new Set();
+  let   first = true;
+  return function(items) {
+    if (!items?.length) return;
+    const newItems = items.filter(item => !seen.has(item.link));
+    items.forEach(item => seen.add(item.link));
+    if (!newItems.length) return;
+    const list  = document.getElementById(listId);
+    const flash = !first;
+    first = false;
+    const frag = document.createDocumentFragment();
+    for (const item of newItems) {
+      const div = document.createElement('div');
+      div.className = ['news-item', extraItemClass, flash ? 'news-new' : '']
+                        .filter(Boolean).join(' ');
+      const display = item.title_cn || item.title;
+      const orig    = item.title_cn ? item.title : '';
+      div.innerHTML =
+        `<div class="news-meta">` +
+          `<span class="news-source">${esc(item.source)}</span>` +
+          `<span class="news-time">${esc(item.time)}</span>` +
+        `</div>` +
+        `<div class="news-title">` +
+          `<a href="${esc(item.link)}" title="${esc(orig)}" target="_blank" rel="noopener">${esc(display)}</a>` +
+        `</div>`;
+      frag.appendChild(div);
+    }
+    list.insertBefore(frag, list.firstChild);
+    while (list.children.length > 150) list.removeChild(list.lastChild);
+  };
+}
+
+const renderNews = makeNewsRenderer('news-list');
+
+/* ── Live News：每源固定一行，更新时翻页动画 ── */
+function renderLiveNews(items) {
+  if (!items?.length) return;
+  const list = document.getElementById('live-list');
+
+  // 每个 source 只取最新一条（items 已按时间降序）
+  const bySource = {};
+  for (const item of items) {
+    if (!bySource[item.source]) bySource[item.source] = item;
+  }
+
+  for (const [source, item] of Object.entries(bySource)) {
+    const display = item.title_cn || item.title;
+    const orig    = item.title_cn ? item.title : '';
+
+    // 查找该源已有行
+    let row = list.querySelector(`.live-row[data-source="${CSS.escape(source)}"]`);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'live-row';
+      row.dataset.source = source;
+      row.dataset.link   = '';
+      const inner = document.createElement('div');
+      inner.className = 'live-row-inner';
+      row.appendChild(inner);
+      list.appendChild(row);
+    }
+
+    // 仅在链接变化时更新内容并触发动画
+    if (row.dataset.link !== item.link) {
+      row.dataset.link = item.link;
+      const inner = row.querySelector('.live-row-inner');
+      inner.innerHTML =
+        `<span class="live-badge">${esc(source)}</span>` +
+        `<span class="live-row-time">${esc(item.time)}</span>` +
+        `<span class="live-row-title"><a href="${esc(item.link)}" title="${esc(orig)}" target="_blank" rel="noopener">${esc(display)}</a></span>`;
+      inner.classList.remove('live-flip');
+      void inner.offsetWidth; // 强制 reflow 以重启动画
+      inner.classList.add('live-flip');
+    }
+  }
+}
+
+/* ── 数据获取 ── */
+async function fetchData() {
+  try {
+    const r = await fetch('/api/data');
+    const d = await r.json();
+    if (d.updated) render(d);
+  } catch(e) { console.error('data error:', e); }
+}
+async function fetchNews() {
+  try { renderNews(await (await fetch('/api/news')).json()); }
+  catch(e) { console.error('news error:', e); }
+}
+async function fetchLiveNews() {
+  try { renderLiveNews(await (await fetch('/api/live-news')).json()); }
+  catch(e) { console.error('live-news error:', e); }
+}
+
+/* ── 初始化 + SSE ── */
+async function init() {
+  await fetchData();
+  await fetchNews();
+  await fetchLiveNews();
+  const es = new EventSource('/stream');
+  es.onmessage = e => {
+    if      (e.data === 'refresh')   fetchData();
+    else if (e.data === 'news')      fetchNews();
+    else if (e.data === 'live-news') fetchLiveNews();
+  };
+  es.onerror = () => console.warn('SSE reconnecting…');
+}
+
+init();
+</script>
+</body>
+</html>
