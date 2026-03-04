@@ -8,6 +8,7 @@ Yahoo Finance 中国股市实时终端监控
 import argparse
 import json
 import os
+import sys
 import time
 from datetime import datetime
 
@@ -64,7 +65,9 @@ CATEGORIES = [
 
 console = Console()
 
-NAMES_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ashare_names.json")
+_IS_BUNDLE       = getattr(sys, 'frozen', False)
+_DATA_DIR        = os.path.dirname(sys.executable) if _IS_BUNDLE else os.path.dirname(os.path.abspath(__file__))
+NAMES_CACHE_FILE = os.path.join(_DATA_DIR, "ashare_names.json")
 NAMES_CACHE_MAX_DAYS = 30
 
 _NAMES: dict = {}           # { "600519.SS": "贵州茅台", ... }

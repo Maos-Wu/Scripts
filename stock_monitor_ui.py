@@ -10,14 +10,31 @@ import json
 import math
 import os
 import queue
+import sys
 import threading
 import time as time_module
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from time import mktime
 
 import pandas as pd
 import requests as _requests
 from flask import Flask, Response, jsonify, render_template
+
+# ── PyInstaller 兼容路径 ──────────────────────────────────────
+# _BUNDLE_DIR: 只读资源（templates 等），打包时在 sys._MEIPASS，源码时在脚本目录
+# _DATA_DIR:   可写数据（缓存文件），打包时在 exe 同级目录，源码时在脚本目录
+_IS_BUNDLE  = getattr(sys, 'frozen', False)
+_BUNDLE_DIR = sys._MEIPASS if _IS_BUNDLE else os.path.dirname(os.path.abspath(__file__))
+_DATA_DIR   = os.path.dirname(sys.executable) if _IS_BUNDLE else os.path.dirname(os.path.abspath(__file__))
+
+# 打包环境下，显式告知 curl_cffi SSL 证书路径
+if _IS_BUNDLE:
+    import certifi as _certifi
+    _ca = _certifi.where()
+    os.environ['CURL_CA_BUNDLE']     = _ca
+    os.environ['SSL_CERT_FILE']      = _ca
+    os.environ['REQUESTS_CA_BUNDLE'] = _ca
 
 import stock_monitor as sm
 
@@ -27,7 +44,7 @@ try:
 except ImportError:
     _HAS_FEEDPARSER = False
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder=os.path.join(_BUNDLE_DIR, 'templates'))
 
 _cache: dict = {}
 _news_cache: list = []
@@ -51,28 +68,52 @@ LEADERBOARD_SIZE = 30
 NEWS_MAX_PER_FEED = 10   # 全局默认，可被每条来源的 max 字段覆盖
 
 NEWS_FEEDS: list[dict] = [
+    # 英美综合
     {"name": "BBC",      "url": "https://feeds.bbci.co.uk/news/world/rss.xml"},
     {"name": "NYTimes",  "url": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"},
     {"name": "Guardian", "url": "https://www.theguardian.com/world/rss"},
-    {"name": "CNN",      "url": "http://rss.cnn.com/rss/edition.rss"},
-    {"name": "NBC",      "url": "https://feeds.nbcnews.com/nbcnews/public/news"},
-    # {"name": "Reuters", "url": "https://feeds.reuters.com/reuters/topNews", "max": 15},
+    {"name": "FT",       "url": "https://www.ft.com/rss/home"},
+    # 财经/商业
+    {"name": "YahooFin", "url": "https://finance.yahoo.com/news/rssindex"},
+    # 政治
+    {"name": "Politico", "url": "https://rss.politico.com/politics-news.xml"},
+    # 亚洲
+    {"name": "SCMP",     "url": "https://www.scmp.com/rss/91/feed"},
+    {"name": "Nikkei",   "url": "https://asia.nikkei.com/rss/feed/nar"},
+    # Reuters/AP 国内 DNS 无法解析，暂时注释
+    # {"name": "Reuters", "url": "https://feeds.reuters.com/reuters/topNews"},
+    # {"name": "AP",      "url": "https://feeds.apnews.com/rss/apf-topnews"},
 ]
 
 # Live / Breaking 来源（轮询频率更高）
 LIVE_NEWS_FEEDS: list[dict] = [
     {"name": "CNBC",       "url": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114"},
-    {"name": "ABC",        "url": "https://feeds.abcnews.com/abcnews/topstories"},
     {"name": "SkyNews",    "url": "https://feeds.skynews.com/feeds/rss/home.xml"},
     {"name": "AlJazeera",  "url": "https://www.aljazeera.com/xml/rss/all.xml"},
     {"name": "MarketWatch","url": "https://feeds.marketwatch.com/marketwatch/topstories"},
+    {"name": "TheOnion",   "url": "https://www.theonion.com/rss"},
 ]
 
 FUTURES = {
-    "GC=F": "黄金",
-    "CL=F": "石油(WTI)",
-    "SI=F": "白银",
-    "HG=F": "有色金属(铜)",
+    # 大宗商品
+    "GC=F":     "黄金",
+    "CL=F":     "油(WTI)",
+    "BZ=F":     "油(布伦特)",
+    "SI=F":     "白银",
+    "HG=F":     "铜",
+    # 美股指数
+    "^GSPC":    "标普500",
+    "^IXIC":    "纳指",
+    "^DJI":     "道指",
+    # 亚太指数
+    "^N225":    "日经225",
+    "^KS11":    "KOSPI",
+    # 外汇
+    "CNY=X":    "美元/人民币",
+    "JPY=X":    "美元/日元",
+    # 风险指标
+    "^VIX":     "VIX恐慌指数",
+    "^TNX":     "美债10Y收益率",
 }
 
 
@@ -163,7 +204,7 @@ TRANS_TTL_DAYS = 7   # JSON 缓存有效期（天），超期自动清除
 
 # ── 翻译缓存 ──────────────────────────────────────────────────
 # 内存结构：{ "English title": {"cn": "中文", "ts": 1706000000} }
-_TRANS_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trans_cache.json")
+_TRANS_CACHE_FILE = os.path.join(_DATA_DIR, "trans_cache.json")
 _trans_cache: dict = {}
 _trans_lock   = threading.Lock()
 
@@ -286,36 +327,56 @@ def _apply_translations(items: list) -> None:
 _DEFAULT_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; newsbot/1.0)"}
 
 
+def _fetch_one_feed(feed_cfg: dict) -> list:
+    """抓取单个 RSS/Atom feed，返回该来源的条目列表。"""
+    source  = feed_cfg["name"]
+    url     = feed_cfg["url"]
+    limit   = feed_cfg.get("max", NEWS_MAX_PER_FEED)
+    headers = {**_DEFAULT_HEADERS, **feed_cfg.get("headers", {})}
+    result  = []
+    try:
+        resp = _requests.get(url, headers=headers, timeout=12)
+        resp.raise_for_status()
+        feed = _feedparser.parse(resp.content)
+        for entry in feed.entries[:limit]:
+            title = (entry.get("title") or "").strip()
+            link  = (entry.get("link")  or "").strip()
+            if not title or not link:
+                continue
+            ts = 0
+            parsed_time = (entry.get("published_parsed") or
+                           entry.get("updated_parsed") or
+                           entry.get("created_parsed"))
+            if not parsed_time:
+                raw = (entry.get("published") or entry.get("updated") or
+                       entry.get("created") or "")
+                if raw:
+                    import email.utils
+                    tpl = email.utils.parsedate(raw)
+                    if tpl:
+                        parsed_time = tpl
+            if parsed_time:
+                ts = mktime(parsed_time)
+                time_str = datetime.fromtimestamp(ts).strftime("%m-%d %H:%M")
+            else:
+                time_str = "--"
+            result.append({"source": source, "title": title,
+                           "link": link, "time": time_str, "_ts": ts})
+    except Exception as e:
+        print(f"[news] {source}: {e}", flush=True)
+    return result
+
+
 def _fetch_feeds(feeds: list) -> list:
-    """通用 RSS/Atom 抓取器：接收 feeds 配置列表，返回按时间降序排列的条目。"""
+    """通用 RSS/Atom 抓取器：并发抓取所有 feeds，返回按时间降序排列的条目。"""
     if not _HAS_FEEDPARSER:
         return []
     items = []
-    for feed_cfg in feeds:
-        source  = feed_cfg["name"]
-        url     = feed_cfg["url"]
-        limit   = feed_cfg.get("max", NEWS_MAX_PER_FEED)
-        headers = {**_DEFAULT_HEADERS, **feed_cfg.get("headers", {})}
-        try:
-            feed = _feedparser.parse(url, request_headers=headers)
-            for entry in feed.entries[:limit]:
-                title = (entry.get("title") or "").strip()
-                link  = (entry.get("link")  or "").strip()
-                if not title or not link:
-                    continue
-                ts = 0
-                if entry.get("published_parsed"):
-                    ts = mktime(entry.published_parsed)
-                    time_str = datetime.fromtimestamp(ts).strftime("%m-%d %H:%M")
-                else:
-                    time_str = "--"
-                items.append({"source": source, "title": title,
-                              "link": link, "time": time_str, "_ts": ts})
-        except Exception as e:
-            print(f"[news] {source}: {e}", flush=True)
+    with ThreadPoolExecutor(max_workers=len(feeds)) as executor:
+        futures = [executor.submit(_fetch_one_feed, cfg) for cfg in feeds]
+        for future in as_completed(futures):
+            items.extend(future.result())
     items.sort(key=lambda x: x.get("_ts", 0), reverse=True)
-    for item in items:
-        item.pop("_ts", None)
     _apply_translations(items)
     return items
 
@@ -447,7 +508,7 @@ def stream():
 
 def main():
     parser = argparse.ArgumentParser(description="Yahoo Finance 中国股市 Web 监控")
-    parser.add_argument("--interval", type=int, default=10, help="刷新间隔秒数（默认 10）")
+    parser.add_argument("--interval", type=int, default=60, help="刷新间隔秒数（默认 60）")
     parser.add_argument("--port",     type=int, default=5000, help="HTTP 端口（默认 5000）")
     args = parser.parse_args()
 
@@ -455,9 +516,9 @@ def main():
 
     t = threading.Thread(target=background_fetch, args=(args.interval,), daemon=True)
     t.start()
-    tn = threading.Thread(target=background_news, args=(120,), daemon=True)
+    tn = threading.Thread(target=background_news, args=(600,), daemon=True)
     tn.start()
-    tl = threading.Thread(target=background_live_news, args=(30,), daemon=True)
+    tl = threading.Thread(target=background_live_news, args=(120,), daemon=True)
     tl.start()
 
     print(f"启动 Web 监控 → http://localhost:{args.port}", flush=True)

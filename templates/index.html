@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>中国股市实时监控</title>
+<title>帝江号集成终端</title>
 <style>
   :root {
     --bg:     #1a1a1a;
@@ -19,17 +19,25 @@
     --live:   #ff8c42;
   }
 
+  html { height: 100%; }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: 'Courier New', Courier, monospace;
+    font-family: 'Microsoft YaHei', '微软雅黑', sans-serif;
     font-size: 13px;
     padding: 5px 8px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   h1 {
+    flex-shrink: 0;
+    position: relative;
     text-align: center;
     color: var(--gold);
     font-size: 15px;
@@ -39,22 +47,107 @@
     background: #0d1b2a;
     letter-spacing: 2px;
   }
+  #header-clock {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    letter-spacing: 0;
+    opacity: 0.8;
+    font-family: 'Courier New', monospace;
+  }
 
   /* ── 左右分栏 ── */
-  #app  { display: flex; gap: 8px; align-items: flex-start; }
-  #left-col { flex: none; }
-  #main     { width: max-content; }
+  #app {
+    display: flex;        /* 横向排列左栏和右栏 */
+    gap: 8px;             /* 左右栏之间的间距 */
+    align-items: stretch; /* 左右栏等高，各自撑满 #app 的高度 */
+    flex: 1;              /* 占满 body 中标题栏以下的全部剩余高度 */
+    min-height: 0;        /* 允许 flex 子元素在高度上收缩（防止溢出 body） */
+    overflow: hidden;     /* 裁掉超出 #app 边界的内容，禁止整体滚动 */
+  }
+  #left-col {
+    flex: 0 0 50%;    /* 不伸缩，固定占父容器（#app）宽度的 50% */
+    min-width: 0;     /* 允许内容压缩到比 50% 更窄，防止表格撑破布局 */
+    overflow: hidden; /* 内部上下两半各自管理自己的滚动，左栏本身不滚 */
+  }
+  /* 左栏滚动条样式（供内部子容器复用） */
+  #left-col::-webkit-scrollbar { width: 4px; height: 4px; }
+  #left-col::-webkit-scrollbar-track { background: var(--bg2); }
+  #left-col::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* 行情内容区：填满左栏，纵向 flex 以便上下分割 */
+  #main {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── 左栏上半（自选股 + 期货）：固定占 35% ── */
+  .left-top {
+    flex: 0 0 35%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* 上半内的 top-row 撑满剩余高度，子卡片等高 */
+  .left-top .top-row {
+    flex: 1;
+    min-height: 0;
+    margin-bottom: 0;
+    align-items: stretch;
+  }
+  /* 上半卡片变为纵向 flex，使 table 能撑满卡片高度 */
+  .left-top .card {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* table 填满卡片，行高自动均分（自适应间距） */
+  .left-top .card table { flex: 1; height: 100%; }
+
+  /* ── 左栏下半（A股榜单）：占剩余 65% ── */
+  .left-bottom {
+    flex: 1;         /* 占 #main 中剩余的全部高度（约 65%） */
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* 三列榜单网格撑满下半区 */
+  .left-bottom #leaderboard-grid {
+    flex: 1;
+    min-height: 0;
+    align-items: stretch;
+    grid-template-rows: 1fr;   /* 单行撑满 flex 给定的高度，而非按内容 auto */
+  }
+  /* 每张榜单卡片纵向 flex，撑满网格行高 */
+  .left-bottom .card {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+  /* 榜单滚动区填满卡片（替代固定 max-height） */
+  .left-bottom .lb-body {
+    flex: 1;
+    max-height: none;
+  }
+  /* 榜单 table 填满滚动区，行高自动均分（自适应间距） */
+  .left-bottom .lb-body table { height: 100%; }
 
   /* ── 右栏：上下两半 ── */
   #news-panel {
     flex: 1;
-    min-width: 280px;
-    position: sticky;
-    top: 5px;
-    height: calc(100vh - 42px);
+    min-width: 0;
+    height: auto;
     display: flex;
     flex-direction: column;
     gap: 6px;
+    min-height: 0;
   }
   .news-half {
     flex: 1;
@@ -154,14 +247,14 @@
     100% { transform: translateY(0);     opacity: 1; }
   }
   .live-badge {
-    font-size: 9px; font-weight: bold;
+    font-size: 12px; font-weight: bold;
     padding: 1px 4px; border-radius: 2px;
     background: #2d1c0d; color: var(--live);
     flex-shrink: 0; white-space: nowrap;
   }
-  .live-row-time { font-size: 9px; color: var(--dim); flex-shrink: 0; }
+  .live-row-time { font-size: 12px; color: var(--dim); flex-shrink: 0; }
   .live-row-title {
-    font-size: 11px; flex: 1;
+    font-size: 14px; flex: 1;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   }
   .live-row-title a { color: var(--text); text-decoration: none; }
@@ -175,11 +268,12 @@
   .section-rule span { background: var(--bg); padding: 0 8px; color: var(--accent); }
 
   /* ── 网格 ── */
-  .grid-2 { display: grid; grid-template-columns: auto auto; gap: 5px; }
-  .grid-3 { display: grid; grid-template-columns: auto auto auto; gap: 5px; }
+  .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
   .top-row { display: flex; gap: 5px; align-items: flex-start; margin-bottom: 6px; }
-  .top-row .grid-2 { flex: none; }
-  #futures-panel { flex-shrink: 0; }
+  .top-row .grid-2 { flex: 1; min-width: 0; }
+  #futures-panel { flex: 0 0 210px; display: flex; flex-direction: column; min-height: 0; }
+  #futures-panel .card { flex: 1; min-height: 0; }
 
   /* ── 卡片 ── */
   .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
@@ -215,11 +309,61 @@
   #futures-panel    td:nth-child(2), #futures-panel    th:nth-child(2) { padding-left:  2px; }
 
   /* ── 榜单滚动 ── */
-  .lb-body { max-height: 560px; overflow-y: auto; }
+  .lb-body { max-height: calc(45vh - 60px); overflow-y: auto; }
   .lb-body::-webkit-scrollbar { width: 4px; }
   .lb-body::-webkit-scrollbar-track { background: var(--bg2); }
   .lb-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
   .lb-body thead th { position: sticky; top: 0; z-index: 1; }
+  /* 新闻头条：2 列网格，每源一块 */
+  #news-list {
+    flex: 1; min-height: 0;
+    display: grid; grid-template-columns: repeat(2, 1fr);
+    overflow-y: hidden; gap: 3px; padding: 3px;
+  }
+  .news-block {
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 2px;
+    padding: 5px 7px; display: flex; flex-direction: column; gap: 3px;
+    overflow: hidden; min-height: 0; transition: opacity 0.25s ease;
+  }
+  .news-block.nb-cycling { opacity: 0.2; }
+  .nb-header { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+  .nb-title {
+    flex: 1; overflow: hidden; font-size: 12px; line-height: 1.4;
+  }
+  .nb-title a {
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    line-clamp: 3; overflow: hidden;
+    color: var(--text); text-decoration: none;
+  }
+  .nb-title a:hover { color: var(--accent); text-decoration: underline; }
+  .nb-meta { display: flex; align-items: center; gap: 4px; }
+  .news-new-badge {
+    font-size: 10px; color: #4ade80; font-weight: bold; cursor: pointer;
+    white-space: nowrap; border: 1px solid rgba(74,222,128,.5);
+    border-radius: 2px; padding: 0 3px; flex-shrink: 0;
+  }
+  .news-new-badge:hover { opacity: 0.6; }
+
+  /* Live News 内嵌块（占满一整行） */
+  .live-block { grid-column: 1 / -1; }
+  .live-inline-body { display: flex; align-items: center; gap: 4px; flex: 1; min-height: 0; overflow: hidden; }
+  .live-nav {
+    flex-shrink: 0; background: none; border: 1px solid var(--border);
+    color: var(--dim); cursor: pointer; border-radius: 2px;
+    font-size: 18px; line-height: 1; padding: 1px 7px;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .live-nav:hover { border-color: var(--live); color: var(--live); }
+  .live-dots { display: flex; gap: 6px; justify-content: center; flex-shrink: 0; padding: 2px 0 1px; }
+  .live-dot-item {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--border); transition: background 0.3s, transform 0.3s;
+  }
+  .live-dot-item.active { background: var(--live); transform: scale(1.4); }
+
+  /* 扩展面板 */
+  #ext-panel { flex: 1; min-height: 0; overflow: hidden; }
+  #dino-canvas { display: block; }
 
   /* ── 颜色 ── */
   .up { color: var(--up); }
@@ -244,7 +388,7 @@
 </style>
 </head>
 <body>
-<h1>中国股市实时监控</h1>
+<h1><span id="header-clock"></span>帝江号集成终端</h1>
 
 <div id="app">
 
@@ -252,16 +396,22 @@
   <div id="left-col">
     <div id="loading">正在加载数据…</div>
     <div id="main">
-      <div class="top-row">
-        <div class="grid-2" id="watchlist-grid"></div>
-        <div id="futures-panel"></div>
+      <!-- 上半：自选股 + 期货（35%） -->
+      <div class="left-top">
+        <div class="top-row">
+          <div class="grid-2" id="watchlist-grid"></div>
+          <div id="futures-panel"></div>
+        </div>
       </div>
-      <p class="section-rule"><span>── A 股榜单 ──</span></p>
-      <div class="grid-3" id="leaderboard-grid"></div>
-      <div class="status-bar">
-        <span>刷新间隔: <span class="val" id="interval-val">--</span>s</span>
-        <span>最后更新: <span class="val" id="updated-val">--</span></span>
-        <span id="alert-val" class="alert"></span>
+      <!-- 下半：A股榜单（65%） -->
+      <div class="left-bottom">
+        <p class="section-rule"><span>── A 股榜单 ──</span></p>
+        <div class="grid-3" id="leaderboard-grid"></div>
+        <div class="status-bar">
+          <span>刷新间隔: <span class="val" id="interval-val">--</span>s</span>
+          <span>最后更新: <span class="val" id="updated-val">--</span></span>
+          <span id="alert-val" class="alert"></span>
+        </div>
       </div>
     </div>
   </div>
@@ -271,14 +421,12 @@
 
     <div class="news-half card">
       <div class="card-title">新闻头条</div>
-      <div id="news-list" class="news-scroll"></div>
+      <div id="news-list"></div>
     </div>
 
     <div class="news-half card">
-      <div class="card-title live-title">
-        <span class="live-dot"></span>Live News
-      </div>
-      <div id="live-list"></div>
+      <div class="card-title">扩展面板</div>
+      <div id="ext-panel"><canvas id="dino-canvas"></canvas></div>
     </div>
 
   </div>
@@ -348,7 +496,7 @@ function leaderboardCard(title, rows, hlSet) {
   return h + '</tbody></table></div></div>';
 }
 function futuresCard(rows) {
-  let h = `<div class="card"><div class="card-title">国际期货</div><table>
+  let h = `<div class="card"><div class="card-title">全球市场</div><table>
     <thead><tr><th class="l">品种</th><th>当前价</th><th>涨跌额</th><th>涨跌幅%</th>
     </tr></thead><tbody>`;
   for (const r of rows) {
@@ -382,87 +530,423 @@ function render(data) {
   const cnt = hlSet.size;
   document.getElementById('alert-val').textContent = cnt > 0 ? `⚡ ${cnt} 只股票变动` : '';
   document.getElementById('loading').style.display = 'none';
-  document.getElementById('main').style.display = 'block';
+  document.getElementById('main').style.display = 'flex';
 }
 
-/* ── 新闻渲染工厂（新闻 / Live 共用同一套逻辑）── */
-function makeNewsRenderer(listId, extraItemClass = '') {
-  const seen  = new Set();
-  let   first = true;
-  return function(items) {
-    if (!items?.length) return;
-    const newItems = items.filter(item => !seen.has(item.link));
-    items.forEach(item => seen.add(item.link));
-    if (!newItems.length) return;
-    const list  = document.getElementById(listId);
-    const flash = !first;
-    first = false;
-    const frag = document.createDocumentFragment();
-    for (const item of newItems) {
-      const div = document.createElement('div');
-      div.className = ['news-item', extraItemClass, flash ? 'news-new' : '']
-                        .filter(Boolean).join(' ');
+/* ── Live News 内嵌状态 ── */
+let _liveItems = [], _liveIdx = 0, _liveIv = null;
+let _dismissedNew = new Set(); // 用户已手动关闭的 "New!" 链接
+
+function _makeLiveInlineBlock() {
+  const b = document.createElement('div');
+  b.id = 'live-inline';
+  b.className = 'news-block live-block';
+  b.innerHTML =
+    `<div class="nb-header">` +
+      `<span style="display:flex;align-items:center;gap:5px">` +
+        `<span class="live-dot"></span>` +
+        `<span style="color:var(--live);font-weight:bold;font-size:11px;letter-spacing:1px">Live News</span>` +
+        `<span class="live-src news-source" style="background:#2d1625;color:#f472b6"></span>` +
+      `</span>` +
+      `<span class="live-time news-time"></span>` +
+    `</div>` +
+    `<div class="live-inline-body">` +
+      `<button class="live-nav live-prev">&#8249;</button>` +
+      `<div class="nb-title live-inline-title"><a href="" target="_blank" rel="noopener"></a></div>` +
+      `<button class="live-nav live-next">&#8250;</button>` +
+    `</div>` +
+    `<div class="live-dots"></div>`;
+  b.querySelector('.live-prev').addEventListener('click', () => {
+    if (!_liveItems.length) return;
+    _liveIdx = (_liveIdx - 1 + _liveItems.length) % _liveItems.length;
+    _updateLiveInline(); _resetLiveTimer();
+  });
+  b.querySelector('.live-next').addEventListener('click', () => {
+    if (!_liveItems.length) return;
+    _liveIdx = (_liveIdx + 1) % _liveItems.length;
+    _updateLiveInline(); _resetLiveTimer();
+  });
+  return b;
+}
+
+function _updateLiveInline() {
+  const block = document.getElementById('live-inline');
+  if (!block || !_liveItems.length) return;
+  const item    = _liveItems[_liveIdx];
+  const display = item.title_cn || item.title;
+  const orig    = item.title_cn ? item.title : '';
+  block.querySelector('.live-src').textContent  = item.source;
+  block.querySelector('.live-time').textContent = item.time;
+  const a = block.querySelector('.live-inline-title a');
+  a.href = item.link; a.title = orig; a.textContent = display;
+
+  const existingBadge = block.querySelector('.news-new-badge');
+  if (existingBadge) existingBadge.remove();
+  const now = Math.floor(Date.now() / 1000);
+  const isNew = item._ts > 0 && (now - item._ts) <= 900 && !_dismissedNew.has(item.link);
+  if (isNew) {
+    const badge = document.createElement('span');
+    badge.className = 'news-new-badge';
+    badge.textContent = 'New!';
+    const dismiss = () => { _dismissedNew.add(item.link); badge.remove(); };
+    badge.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); dismiss(); });
+    a.addEventListener('click', dismiss, { once: true });
+    const remaining = Math.max(100, (900 - (now - item._ts)) * 1000);
+    setTimeout(() => { if (badge.isConnected) badge.remove(); }, remaining);
+    a.after(badge);
+  }
+
+  const dotsEl = block.querySelector('.live-dots');
+  if (dotsEl.children.length !== _liveItems.length)
+    dotsEl.innerHTML = _liveItems.map(() => `<span class="live-dot-item"></span>`).join('');
+  [...dotsEl.children].forEach((d, i) => d.classList.toggle('active', i === _liveIdx));
+}
+
+function _resetLiveTimer() {
+  if (_liveIv) clearInterval(_liveIv);
+  _liveIv = setInterval(() => {
+    if (!_liveItems.length) return;
+    const block = document.getElementById('live-inline');
+    if (block) block.classList.add('nb-cycling');
+    setTimeout(() => {
+      _liveIdx = (_liveIdx + 1) % _liveItems.length;
+      _updateLiveInline();
+      const b = document.getElementById('live-inline');
+      if (b) b.classList.remove('nb-cycling');
+    }, 250);
+  }, 15000);
+}
+
+/* ── 新闻头条：2 列，每源一块，带箭头 / 点 / New! 标记 ── */
+const renderNews = (function() {
+  let _ivs = [];
+  const _state = {}; // { [src]: { newestTs, idx } }
+
+  function makeNewsBlock(src, pool, startIdx, onIdxChange) {
+    const block = document.createElement('div');
+    block.className = 'news-block';
+    block.innerHTML =
+      `<div class="nb-header">` +
+        `<span class="news-source">${esc(src)}</span>` +
+        `<span class="nb-meta"><span class="news-time"></span></span>` +
+      `</div>` +
+      `<div class="live-inline-body">` +
+        `<button class="live-nav live-prev">&#8249;</button>` +
+        `<div class="nb-title"><a href="" target="_blank" rel="noopener"></a></div>` +
+        `<button class="live-nav live-next">&#8250;</button>` +
+      `</div>` +
+      `<div class="live-dots"></div>`;
+
+    let idx = startIdx, ivId = null;
+
+    function show() {
+      const item    = pool[idx];
       const display = item.title_cn || item.title;
       const orig    = item.title_cn ? item.title : '';
-      div.innerHTML =
-        `<div class="news-meta">` +
-          `<span class="news-source">${esc(item.source)}</span>` +
-          `<span class="news-time">${esc(item.time)}</span>` +
-        `</div>` +
-        `<div class="news-title">` +
-          `<a href="${esc(item.link)}" title="${esc(orig)}" target="_blank" rel="noopener">${esc(display)}</a>` +
-        `</div>`;
-      frag.appendChild(div);
+      const now     = Math.floor(Date.now() / 1000);
+      const isNew   = item._ts > 0 && (now - item._ts) <= 900 && !_dismissedNew.has(item.link);
+
+      block.querySelector('.news-time').textContent = item.time;
+      const a = block.querySelector('.nb-title a');
+      a.href = item.link; a.title = orig; a.textContent = display;
+
+      const existing = block.querySelector('.news-new-badge');
+      if (existing) existing.remove();
+      if (isNew) {
+        const badge = document.createElement('span');
+        badge.className = 'news-new-badge';
+        badge.textContent = 'New!';
+        const dismiss = () => { _dismissedNew.add(item.link); badge.remove(); };
+        badge.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); dismiss(); });
+        a.addEventListener('click', dismiss, { once: true });
+        const remaining = Math.max(100, (900 - (now - item._ts)) * 1000);
+        setTimeout(() => { if (badge.isConnected) badge.remove(); }, remaining);
+        a.after(badge);
+      }
+
+      const dotsEl = block.querySelector('.live-dots');
+      if (pool.length <= 1) {
+        dotsEl.style.display = 'none';
+      } else {
+        dotsEl.style.display = '';
+        if (dotsEl.children.length !== pool.length)
+          dotsEl.innerHTML = pool.map(() => `<span class="live-dot-item"></span>`).join('');
+        [...dotsEl.children].forEach((d, i) => d.classList.toggle('active', i === idx));
+      }
     }
-    list.insertBefore(frag, list.firstChild);
-    while (list.children.length > 150) list.removeChild(list.lastChild);
+
+    function setIdx(i) { idx = i; onIdxChange(i); show(); }
+
+    function resetTimer() {
+      if (ivId) {
+        clearInterval(ivId);
+        const pos = _ivs.indexOf(ivId);
+        if (pos !== -1) _ivs.splice(pos, 1);
+        ivId = null;
+      }
+      if (pool.length <= 1) return;
+      ivId = setInterval(() => {
+        block.classList.add('nb-cycling');
+        setTimeout(() => { setIdx((idx + 1) % pool.length); block.classList.remove('nb-cycling'); }, 250);
+      }, 45000);
+      _ivs.push(ivId);
+    }
+
+    if (pool.length <= 1) {
+      block.querySelector('.live-prev').style.display = 'none';
+      block.querySelector('.live-next').style.display = 'none';
+    } else {
+      block.querySelector('.live-prev').addEventListener('click', () => {
+        setIdx((idx - 1 + pool.length) % pool.length); resetTimer();
+      });
+      block.querySelector('.live-next').addEventListener('click', () => {
+        setIdx((idx + 1) % pool.length); resetTimer();
+      });
+    }
+
+    show();
+    resetTimer();
+    return block;
+  }
+
+  return function(items) {
+    if (!items?.length) return;
+
+    _ivs.forEach(id => clearInterval(id));
+    _ivs = [];
+
+    const bySource = {}, order = [];
+    for (const item of items) {
+      if (!bySource[item.source]) { bySource[item.source] = []; order.push(item.source); }
+      bySource[item.source].push(item);
+    }
+
+    const list = document.getElementById('news-list');
+    list.innerHTML = '';
+    const frag = document.createDocumentFragment();
+
+    for (const src of order) {
+      const pool       = bySource[src].slice(0, 6);
+      const prev       = _state[src] || {};
+      const newNewestTs = pool[0]?._ts || 0;
+      // Jump to newest (idx 0) only when a new article arrived; otherwise resume position
+      const startIdx   = (newNewestTs > (prev.newestTs || 0)) ? 0
+                       : Math.min(prev.idx || 0, pool.length - 1);
+      _state[src] = { newestTs: newNewestTs, idx: startIdx };
+      frag.appendChild(makeNewsBlock(src, pool, startIdx, (i) => { _state[src].idx = i; }));
+    }
+
+    frag.appendChild(_makeLiveInlineBlock());
+    list.appendChild(frag);
+    _updateLiveInline();
+    if (_liveItems.length && !_liveIv) _resetLiveTimer();
   };
-}
+})();
 
-const renderNews = makeNewsRenderer('news-list');
-
-/* ── Live News：每源固定一行，更新时翻页动画 ── */
+/* ── Live News：内嵌在新闻头条网格底部，1行横跨2列 ── */
 function renderLiveNews(items) {
   if (!items?.length) return;
-  const list = document.getElementById('live-list');
-
-  // 每个 source 只取最新一条（items 已按时间降序）
-  const bySource = {};
+  const bySource = {}, order = [];
   for (const item of items) {
-    if (!bySource[item.source]) bySource[item.source] = item;
+    if (!bySource[item.source]) { bySource[item.source] = item; order.push(item.source); }
   }
-
-  for (const [source, item] of Object.entries(bySource)) {
-    const display = item.title_cn || item.title;
-    const orig    = item.title_cn ? item.title : '';
-
-    // 查找该源已有行
-    let row = list.querySelector(`.live-row[data-source="${CSS.escape(source)}"]`);
-    if (!row) {
-      row = document.createElement('div');
-      row.className = 'live-row';
-      row.dataset.source = source;
-      row.dataset.link   = '';
-      const inner = document.createElement('div');
-      inner.className = 'live-row-inner';
-      row.appendChild(inner);
-      list.appendChild(row);
-    }
-
-    // 仅在链接变化时更新内容并触发动画
-    if (row.dataset.link !== item.link) {
-      row.dataset.link = item.link;
-      const inner = row.querySelector('.live-row-inner');
-      inner.innerHTML =
-        `<span class="live-badge">${esc(source)}</span>` +
-        `<span class="live-row-time">${esc(item.time)}</span>` +
-        `<span class="live-row-title"><a href="${esc(item.link)}" title="${esc(orig)}" target="_blank" rel="noopener">${esc(display)}</a></span>`;
-      inner.classList.remove('live-flip');
-      void inner.offsetWidth; // 强制 reflow 以重启动画
-      inner.classList.add('live-flip');
-    }
-  }
+  const next = order.map(s => bySource[s]);
+  if (next.length !== _liveItems.length) _liveIdx = 0;
+  _liveItems = next;
+  _updateLiveInline();
+  if (_liveItems.length && !_liveIv) _resetLiveTimer();
 }
+
+/* ── 跳跃游戏 ── */
+(function() {
+  'use strict';
+  const _cv = document.getElementById('dino-canvas');
+  const g   = _cv.getContext('2d');
+
+  const GH  = 22;   // ground offset from bottom
+  const CVH = 60;   // character visual height (feet→skull crest)
+  const CHH = 52;   // hitbox height
+  const CHW = 11;   // hitbox half-width
+  const CX  = 76;   // character X
+  const GR  = 0.55; // gravity
+
+  let gY, jV;
+  let state = 'idle';
+  let cY, vY, spd, tick, score, hiScore = 0;
+  let obs, nSpawn;
+
+  function resize() {
+    const p = _cv.parentElement;
+    _cv.width  = Math.max(250, p.clientWidth  || 250);
+    _cv.height = Math.max(120, p.clientHeight || 160);
+    gY = _cv.height - GH;
+    jV = -Math.sqrt(2 * GR * Math.max(35, gY - CVH - 6));
+  }
+
+  function gameReset() {
+    resize();
+    cY = gY; vY = 0; spd = 5; tick = 0; score = 0;
+    obs = []; nSpawn = _cv.width + 260;
+  }
+
+  function jump() {
+    if (state === 'idle')    { state = 'running'; if (cY >= gY - 2) vY = jV; }
+    else if (state === 'running')  { if (cY >= gY - 2) vY = jV; }
+    else if (state === 'dead')     { gameReset(); state = 'running'; }
+  }
+
+  function update() {
+    if (state !== 'running') return;
+    tick++;  score++;
+    if (score % 500 === 0) spd = Math.min(spd + 0.5, 14);
+    vY += GR;  cY = Math.min(gY, cY + vY);
+    if (cY >= gY) vY = 0;
+    for (const o of obs) o.x -= spd;
+    obs = obs.filter(o => o.x + o.w > -5);
+    nSpawn -= spd;
+    if (nSpawn < _cv.width + 5) {
+      const h = 26 + Math.random() * 34, w = 16 + Math.random() * 16;
+      obs.push({ x: _cv.width + 10, w, h });
+      nSpawn = _cv.width + 240 + Math.random() * 360;
+    }
+    const hx1 = CX - CHW, hx2 = CX + CHW;
+    for (const o of obs) {
+      if (hx2 > o.x + 2 && hx1 < o.x + o.w - 2 && cY > gY - o.h + 3) {
+        state = 'dead';
+        if (score > hiScore) hiScore = score;
+      }
+    }
+  }
+
+  /* ── 障碍物：源石晶体 ── */
+  function drawObs(o) {
+    const mX = o.x + o.w * 0.5;
+    g.strokeStyle = '#364d6e'; g.lineWidth = 0.8;
+    g.fillStyle = '#1b2236';
+    g.beginPath(); g.moveTo(o.x, gY);
+    g.lineTo(mX - o.w*0.05, gY - o.h*0.78);
+    g.lineTo(o.x + o.w*0.48, gY); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#1e2940';
+    g.beginPath(); g.moveTo(mX - o.w*0.12, gY);
+    g.lineTo(mX, gY - o.h);
+    g.lineTo(mX + o.w*0.12, gY); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#1b2236';
+    g.beginPath(); g.moveTo(o.x + o.w*0.52, gY);
+    g.lineTo(mX + o.w*0.05, gY - o.h*0.7);
+    g.lineTo(o.x + o.w, gY); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = 'rgba(50,90,200,0.1)';
+    g.beginPath(); g.moveTo(mX, gY - o.h*0.3);
+    g.lineTo(mX - 2, gY); g.lineTo(mX + 2, gY); g.closePath(); g.fill();
+  }
+
+  /* ── 角色绘制：Chrome 小恐龙（朝右） ── */
+  function drawChar(bx, by, tf, dead) {
+    g.save(); g.translate(bx, by);
+    const C = '#535353';
+    const jumping = by < gY - 2;
+    const s = jumping ? 0 : Math.sin(tf * 0.28) * 7;  // 腿摆幅
+    g.fillStyle = C;
+
+    // 尾巴（梯形，向左延伸）
+    g.beginPath();
+    g.moveTo(-8, -24); g.lineTo(-22, -19);
+    g.lineTo(-20, -30); g.lineTo(-8,  -31);
+    g.closePath(); g.fill();
+
+    // 后腿（在身体后面）
+    g.fillRect(-s - 4, -22, 7, 17);
+    g.fillRect(-s - 4,  -5, 11,  4);
+
+    // 身体
+    g.fillRect(-10, -38, 24, 16);
+
+    // 小短臂（霸王龙特征）
+    g.fillRect(2, -40, 8, 5);
+    g.fillRect(4, -36, 6, 4);
+
+    // 头骨后脑隆起（向左高出一截）
+    g.fillRect(4, -60, 9, 6);
+    // 头部主体
+    g.fillRect(4, -56, 20, 14);
+    // 下颚（向右突出）
+    g.fillRect(18, -48, 6, 6);
+
+    // 前腿（在身体前面）
+    g.fillRect(s - 4, -22, 7, 17);
+    g.fillRect(s - 4,  -5, 11,  4);
+
+    // 嘴巴开合（跑动时动态）
+    if (!dead) {
+      const mOpen = jumping ? 0 : Math.round(Math.abs(Math.sin(tf * 0.18)) * 3);
+      if (mOpen > 0) {
+        g.fillStyle = '#1a1a1a';
+        g.fillRect(18, -44, 6, mOpen);
+      }
+      g.fillStyle = C;
+    }
+
+    // 眼睛
+    if (!dead) {
+      g.fillStyle = '#f5f5f5';
+      g.fillRect(17, -55, 5, 5);
+      g.fillStyle = '#1a1a1a';
+      g.fillRect(19, -54, 2, 2);
+    } else {
+      g.strokeStyle = '#f5f5f5'; g.lineWidth = 1.5; g.lineCap = 'square';
+      g.beginPath();
+      g.moveTo(16,-57); g.lineTo(23,-50);
+      g.moveTo(23,-57); g.lineTo(16,-50);
+      g.stroke();
+    }
+
+    g.restore();
+  }
+
+  /* ── 渲染帧 ── */
+  function draw() {
+    g.fillStyle = '#1a1a1a';
+    g.fillRect(0,0,_cv.width,_cv.height);
+
+    g.fillStyle = '#363636'; g.fillRect(0,gY,_cv.width,2);
+    g.fillStyle = '#262626';
+    const gOff = (tick * spd * 0.5) % 50;
+    for (let i = -gOff; i < _cv.width; i += 50) g.fillRect(i,gY+4,25,1);
+
+    for (const o of obs) drawObs(o);
+    drawChar(CX, cY, tick, state === 'dead');
+
+    g.font = '11px monospace'; g.textAlign = 'right';
+    if (hiScore > 0) {
+      g.fillStyle = '#383838';
+      g.fillText('HI ' + String(Math.floor(hiScore/10)).padStart(5,'0'), _cv.width-72, 16);
+    }
+    g.fillStyle = '#505050';
+    g.fillText(String(Math.floor(score/10)).padStart(5,'0'), _cv.width-10, 16);
+
+    g.textAlign = 'center';
+    if (state === 'idle') {
+      g.fillStyle = '#555'; g.font = '12px monospace';
+      g.fillText('空格 / 点击 开始', _cv.width/2, gY/2 + 6);
+    } else if (state === 'dead') {
+      g.fillStyle = '#999'; g.font = 'bold 12px monospace';
+      g.fillText('GAME  OVER', _cv.width/2, gY/2 - 6);
+      g.fillStyle = '#555'; g.font = '10px monospace';
+      g.fillText('空格 / 点击 重玩', _cv.width/2, gY/2 + 10);
+    }
+  }
+
+  function loop() { update(); draw(); requestAnimationFrame(loop); }
+
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); jump(); }
+  });
+  _cv.addEventListener('click', jump);
+  _cv.addEventListener('touchstart', e => { e.preventDefault(); jump(); }, { passive: false });
+
+  new ResizeObserver(() => { if (state === 'idle') { resize(); cY = gY; } }).observe(_cv.parentElement);
+
+  requestAnimationFrame(() => { gameReset(); loop(); });
+})();
 
 /* ── 数据获取 ── */
 async function fetchData() {
@@ -496,6 +980,17 @@ async function init() {
 }
 
 init();
+
+(function() {
+  function updateClock() {
+    const n = new Date();
+    const pad = v => String(v).padStart(2,'0');
+    document.getElementById('header-clock').textContent =
+      `${n.getFullYear()}-${pad(n.getMonth()+1)}-${pad(n.getDate())}  ${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`;
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+})();
 </script>
 </body>
 </html>
