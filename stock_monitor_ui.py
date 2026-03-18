@@ -91,7 +91,7 @@ LIVE_NEWS_FEEDS: list[dict] = [
     {"name": "SkyNews",    "url": "https://feeds.skynews.com/feeds/rss/home.xml"},
     {"name": "AlJazeera",  "url": "https://www.aljazeera.com/xml/rss/all.xml"},
     {"name": "MarketWatch","url": "https://feeds.marketwatch.com/marketwatch/topstories"},
-    {"name": "TheOnion",   "url": "https://www.theonion.com/rss"},
+    # {"name": "TheOnion",   "url": "https://www.theonion.com/rss"},  # SSL 连接失败，暂时禁用
 ]
 
 FUTURES = {
